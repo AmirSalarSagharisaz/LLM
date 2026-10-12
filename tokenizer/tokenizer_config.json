@@ -1,0 +1,12 @@
+{
+    "tokenizer_type": "Byte-Level BPE",
+    "tokenizer_file": "tokenizer/tokenizer.json",
+    "vocab_size": 32000,
+    "special_tokens": {
+        "pad_token": "<pad>",
+        "unk_token": "<unk>",
+        "bos_token": "<bos>",
+        "eos_token": "<eos>"
+    },
+    "frozen": true
+}

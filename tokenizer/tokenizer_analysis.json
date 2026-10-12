@@ -1,0 +1,12 @@
+{
+    "vocabulary": {
+        "vocab_size": 32000
+    },
+    "dataset": {
+        "total_characters": 3300577832,
+        "total_bytes": 3300628097,
+        "total_tokens": 561001552,
+        "characters_per_token": 5.883366668475812,
+        "bytes_per_token": 5.88345626715842
+    }
+}
