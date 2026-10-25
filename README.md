@@ -1,4 +1,4 @@
-# Decoder-Only Transformer for Autoregressive Language Modeling
+# Local Language Modeling
 
 A 109.5M-parameter decoder-only Transformer implemented from scratch in TensorFlow / Keras, with a custom data pipeline, training engine, and evaluation harness. This document gives the model, objective, and optimization procedure in full mathematical form.
 
