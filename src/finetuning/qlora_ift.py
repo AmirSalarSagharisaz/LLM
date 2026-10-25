@@ -5,33 +5,27 @@ import json
 import os
 from pathlib import Path
 from typing import Any
-
 import numpy as np
 import tensorflow as tf
 from tokenizers import Tokenizer
-
 from src.model.transformer import DecoderOnlyTransformer
+
 
 IGNORE_INDEX = -100
 
 
 def configure_gpu() -> None:
-    """Enable on-demand GPU memory allocation where possible."""
     for gpu in tf.config.list_physical_devices("GPU"):
         try:
             tf.config.experimental.set_memory_growth(gpu, True)
         except RuntimeError:
-            # The runtime may already have initialized the device.
             pass
 
-
 def variable_path(variable: Any) -> str:
-    """Return a stable-ish readable Keras variable path across Keras versions."""
     return str(getattr(variable, "path", None) or variable.name)
 
 
 def flatten_layers(model: tf.keras.Model) -> list[tf.keras.layers.Layer]:
-    """Collect nested layers without duplicates, including layers inside blocks."""
     if hasattr(model, "_flatten_layers"):
         try:
             candidates = model._flatten_layers(include_self=False, recursive=True)
@@ -54,13 +48,11 @@ def flatten_layers(model: tf.keras.Model) -> list[tf.keras.layers.Layer]:
                 seen.add(id(child))
                 unique.append(child)
                 visit(child)
-
     visit(model)
     return unique
 
 
 def latest_checkpoint_path(checkpoint_dir: Path) -> str:
-    """Resolve a TensorFlow checkpoint prefix from a checkpoint directory."""
     checkpoint = tf.train.latest_checkpoint(str(checkpoint_dir))
     if not checkpoint:
         raise FileNotFoundError(
@@ -70,9 +62,7 @@ def latest_checkpoint_path(checkpoint_dir: Path) -> str:
         )
     return checkpoint
 
-
 def build_and_restore_base_model(args: argparse.Namespace) -> tf.keras.Model:
-    """Build the same architecture/configuration used by pretraining, then restore it."""
     model = DecoderOnlyTransformer(
         vocab_size=args.vocab_size,
         hidden_dim=args.hidden_dim,
@@ -85,22 +75,16 @@ def build_and_restore_base_model(args: argparse.Namespace) -> tf.keras.Model:
         tie_embeddings=True,
         name="decoder_only_transformer",
     )
-
-    # Materialize variables before restoring a TensorFlow object checkpoint.
     _ = model(tf.zeros([1, args.sequence_length], dtype=tf.int32), training=False)
 
     checkpoint_path = latest_checkpoint_path(Path(args.base_checkpoint_dir))
     status = tf.train.Checkpoint(model=model).restore(checkpoint_path)
-    # The pretraining checkpoint also contains optimizer/training-state objects;
-    # only model weights are required for IFT, so extra checkpoint entries are OK.
     status.assert_existing_objects_matched()
     status.expect_partial()
     print(f"[base] restored model weights from: {checkpoint_path}")
     return model
 
-
 def prepare_int4_lora(model: tf.keras.Model, rank: int, alpha: int) -> list[Any]:
-    """Quantize Dense kernels to Keras int4 and enable LoRA on each Dense layer."""
     if not hasattr(model, "quantize"):
         raise RuntimeError(
             "This installed Keras version does not expose model.quantize(). "
@@ -118,18 +102,10 @@ def prepare_int4_lora(model: tf.keras.Model, rank: int, alpha: int) -> list[Any]
             "No tf.keras.layers.Dense layers were found. This script expects Dense "
             "projections in the decoder attention and feed-forward blocks."
         )
-
-    # Quantize only linear layers. Keep the tied token embedding and RMSNorm in
-    # their original precision, as in common QLoRA configurations.
-    model.quantize(
-        "int4",
-        filters=lambda layer: isinstance(layer, tf.keras.layers.Dense),
-    )
-
-    quantized_count = sum(
-        1 for layer in dense_layers
-        if getattr(layer, "quantization_mode", None) == "int4"
-    )
+    
+    model.quantize("int4", filters=lambda layer: isinstance(layer, tf.keras.layers.Dense),)
+    quantized_count = sum(1 for layer in dense_layers
+        if getattr(layer, "quantization_mode", None) == "int4")
     if quantized_count == 0:
         raise RuntimeError(
             "Keras returned from model.quantize('int4'), but none of the Dense "
@@ -148,8 +124,6 @@ def prepare_int4_lora(model: tf.keras.Model, rank: int, alpha: int) -> list[Any]
             layer.enable_lora(rank=rank, lora_alpha=alpha)
         enabled_count += int(bool(getattr(layer, "lora_enabled", False)))
 
-    # Train only A/B adapter variables. Other model variables may still appear in
-    # model.trainable_variables, but they are deliberately excluded from updates.
     adapters = [
         variable for variable in model.trainable_variables
         if "lora_kernel_a" in variable_path(variable)
@@ -169,14 +143,12 @@ def prepare_int4_lora(model: tf.keras.Model, rank: int, alpha: int) -> list[Any]
     )
     return adapters
 
-
 def find_special_token_id(tokenizer: Tokenizer, candidates: list[str]) -> int | None:
     for spelling in candidates:
         token_id = tokenizer.token_to_id(spelling)
         if token_id is not None:
             return int(token_id)
     return None
-
 
 def make_prompt(record: dict[str, Any]) -> tuple[str, str]:
     instruction = record.get("instruction", record.get("prompt", ""))
@@ -196,7 +168,6 @@ def make_prompt(record: dict[str, Any]) -> tuple[str, str]:
     prompt += "### Response:\n"
     return prompt, response.strip()
 
-
 def encode_jsonl(
     jsonl_path: Path,
     tokenizer: Tokenizer,
@@ -204,7 +175,6 @@ def encode_jsonl(
     pad_id: int,
     eos_id: int | None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Encode JSONL IFT rows; labels are ignored for the prompt and padding."""
     if not jsonl_path.exists():
         raise FileNotFoundError(f"Instruction dataset not found: {jsonl_path}")
 
@@ -228,15 +198,9 @@ def encode_jsonl(
                 answer_ids.append(eos_id)
             if not answer_ids:
                 raise ValueError(f"Empty tokenized response at {jsonl_path}:{line_number}")
-
-            # Preserve at least one response token. If the prompt is too long,
-            # trim its left side so the response header/end of prompt survives.
             prompt_ids = prompt_ids[-max_sequence_length:]
             answer_ids = answer_ids[: max_total_length - len(prompt_ids)]
             token_ids = prompt_ids + answer_ids
-
-            # The prompt is context, not a prediction target for IFT. The loss is
-            # applied only to the response tokens and any appended EOS token.
             labels = token_ids.copy()
             labels[: len(prompt_ids)] = [IGNORE_INDEX] * len(prompt_ids)
 
@@ -248,8 +212,6 @@ def encode_jsonl(
                 token_ids = token_ids[:max_total_length]
                 labels = labels[:max_total_length]
 
-            # The model predicts token t+1 from input token t. Therefore inputs
-            # and targets both have max_sequence_length entries, already shifted.
             x = np.asarray(token_ids[:-1], dtype=np.int32)
             y = np.asarray(labels[1:], dtype=np.int32)
             if not np.any(y != IGNORE_INDEX):
@@ -359,10 +321,8 @@ def load_adapter_weights(adapter_variables: list[Any], output_dir: Path) -> int:
                     f"model={tuple(variable.shape)}, file={tuple(value.shape)}"
                 )
             variable.assign(value)
-
     print(f"[resume] loaded adapter tensors from {adapter_path}")
     return int(manifest.get("global_step", 0))
-
 
 def masked_loss_sum(logits: tf.Tensor, targets: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor]:
     valid = tf.not_equal(targets, IGNORE_INDEX)
@@ -382,15 +342,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train-jsonl", default="data/ift/train.jsonl")
     parser.add_argument("--validation-jsonl", default="data/ift/validation.jsonl")
     parser.add_argument("--output-dir", default="checkpoints/ift_qlora")
-
-    # These must match the architecture used to create the base checkpoint.
     parser.add_argument("--vocab-size", type=int, default=32000)
     parser.add_argument("--hidden-dim", type=int, default=768)
     parser.add_argument("--num-layers", type=int, default=12)
     parser.add_argument("--num-heads", type=int, default=12)
     parser.add_argument("--intermediate-dim", type=int, default=2048)
     parser.add_argument("--sequence-length", type=int, default=256)
-
     parser.add_argument("--rank", type=int, default=8)
     parser.add_argument("--alpha", type=int, default=16)
     parser.add_argument("--learning-rate", type=float, default=2e-4)
@@ -403,7 +360,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mixed-precision", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--resume-adapter", action="store_true", help="Load output-dir/adapter.npz before training")
     return parser.parse_args()
-
 
 def main() -> None:
     args = parse_args()
@@ -523,7 +479,6 @@ def main() -> None:
     print(f"[done] adapter directory: {output_dir.resolve()}")
     print("[done] The original pretraining checkpoint is unchanged; only adapter.npz was trained/saved.")
     print("[done] For a resumed run, add --resume-adapter (optimizer state restarts).")
-
-
+    
 if __name__ == "__main__":
     main()
