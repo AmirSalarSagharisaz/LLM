@@ -119,7 +119,7 @@ The factor $\sqrt{d_h}$ keeps the logit variance near 1 for unit-variance inputs
 \mathrm{MHA}(X) = \big[ \mathrm{head}_1 \,\Vert\, \cdots \,\Vert\, \mathrm{head}_H \big]\, W_O, \qquad W_O \in \mathbb{R}^{d \times d}
 ```
 
-Because $A^h_{mn} = 0$ for $n > m$, the output at position $m$ is a function of $x_{\le m}$ only. This is what permits the shifted-target objective below without leakage.
+Because $A^h_{mn} = 0$ for $n \gt m$, the output at position $m$ is a function of $x_{\le m}$ only. This is what permits the shifted-target objective below without leakage.
 
 ### 2.4 SwiGLU feed-forward network
 
@@ -150,13 +150,13 @@ p_\theta(\cdot \mid x_{\le t}) = \mathrm{softmax}\big(\mathrm{logits}_t\big)
 The model factorizes sequence probability autoregressively:
 
 ```math
-p_\theta(x_{1:T}) = \prod_{t=1}^{T} p_\theta(x_t \mid x_{<t})
+p_\theta(x_{1:T}) = \prod_{t=1}^{T} p_\theta(x_t \mid x_{\lt t})
 ```
 
 Training minimizes the empirical negative log-likelihood. For a packed chunk of $T+1$ tokens, the inputs are $x_{1:T}$ and the targets are $x_{2:T+1}$ (a one-token shift), giving
 
 ```math
-\mathcal{L}(\theta) = -\frac{1}{N} \sum_{n=1}^{N} \sum_{t=1}^{T} \log p_\theta\!\left( x^{(n)}_{t+1} \,\middle|\, x^{(n)}_{\le t} \right)
+\mathcal{L}(\theta) = -\frac{1}{N} \sum_{n=1}^{N} \sum_{t=1}^{T} \log\, p_\theta\!\left( x^{(n)}_{t+1} \,\middle|\, x^{(n)}_{\le t} \right)
 ```
 
 This is the cross-entropy between the empirical next-token distribution and the model. Minimizing it is equivalent to minimizing $D_{\mathrm{KL}}(p_{\mathrm{data}} \Vert p_\theta)$, up to the constant data entropy $H(p_{\mathrm{data}})$.
@@ -207,7 +207,7 @@ With warmup length $S_w$ and total steps $S$:
 ```math
 \eta_s =
 \begin{cases}
-\eta_{\max}\, \dfrac{s}{S_w}, & s < S_w, \\[2ex]
+\eta_{\max}\, \dfrac{s}{S_w}, & s \lt S_w, \\[2ex]
 \eta_{\min} + \dfrac{1}{2} \big( \eta_{\max} - \eta_{\min} \big) \left( 1 + \cos\!\left( \pi\, \dfrac{s - S_w}{S - S_w} \right) \right), & s \ge S_w
 \end{cases}
 ```
@@ -284,9 +284,9 @@ For example, training on $D = 10^{9}$ tokens costs $C_{\mathrm{train}} \approx 6
 For a held-out set with $N$ scored target tokens:
 
 ```math
-\mathcal{L}_{\mathrm{val}} = -\frac{1}{N} \sum_{i=1}^{N} \log p_\theta(x_i \mid x_{<i}),
+\mathcal{L}_{\mathrm{val}} = -\frac{1}{N} \sum_{i=1}^{N} \log\, p_\theta(x_i \mid x_{\lt i}),
 \qquad
-\mathrm{Acc}_{\mathrm{top1}} = \frac{1}{N} \sum_{i=1}^{N} \mathbf{1}\!\left[ \arg\max_{v}\, p_\theta(v \mid x_{<i}) = x_i \right]
+\mathrm{Acc}_{\mathrm{top1}} = \frac{1}{N} \sum_{i=1}^{N} \mathbf{1}\!\left[ \arg\max_{v}\, p_\theta(v \mid x_{\lt i}) = x_i \right]
 ```
 
 ### 6.2 Sliding-window scoring
@@ -319,7 +319,7 @@ W = W_0 + \frac{\alpha}{r}\, A B,
 \qquad r \ll \min(d_{\mathrm{in}}, d_{\mathrm{out}})
 ```
 
-with $r = 8$ and $\alpha = 16$ (scale $\alpha / r = 2$). The number of trainable parameters per adapted layer is $r\,(d_{\mathrm{in}} + d_{\mathrm{out}})$.
+with $r = 8$ and $\alpha = 16$ (scale $\alpha / r = 2$). The number of trainable parameters per adapted layer is $r(d_{\mathrm{in}} + d_{\mathrm{out}})$.
 
 If adapters are enabled on all seven Dense projections per block (four attention, three SwiGLU):
 
@@ -344,7 +344,7 @@ with unclipped error $|w_i - \hat w_i| \le s/2$. Base weights are stored at 4 bi
 With mask $\mu_t = 1$ on response tokens and $\mu_t = 0$ on prompt tokens:
 
 ```math
-\mathcal{L}_{\mathrm{IFT}} = -\frac{\sum_{t} \mu_t \log p_\theta(x_t \mid x_{<t})}{\sum_{t} \mu_t}
+\mathcal{L}_{\mathrm{IFT}} = -\frac{\sum_{t} \mu_t \log\, p_\theta(x_t \mid x_{\lt t})}{\sum_{t} \mu_t}
 ```
 
 ---
