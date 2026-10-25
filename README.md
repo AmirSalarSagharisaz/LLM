@@ -47,17 +47,17 @@ X^{(0)}_{t,:} = E_{x_t,:}
 Each pre-norm block $\ell = 1, \dots, L$ updates the residual stream as
 
 ```math
-\tilde{X}^{(\ell)} = X^{(\ell-1)} + \operatorname{MHA}^{(\ell)}\!\Big(\operatorname{RMSNorm}\big(X^{(\ell-1)}\big)\Big)
+\tilde{X}^{(\ell)} = X^{(\ell-1)} + \mathrm{MHA}^{(\ell)}\!\Big(\mathrm{RMSNorm}\big(X^{(\ell-1)}\big)\Big)
 ```
 
 ```math
-X^{(\ell)} = \tilde{X}^{(\ell)} + \operatorname{FFN}^{(\ell)}\!\Big(\operatorname{RMSNorm}\big(\tilde{X}^{(\ell)}\big)\Big)
+X^{(\ell)} = \tilde{X}^{(\ell)} + \mathrm{FFN}^{(\ell)}\!\Big(\mathrm{RMSNorm}\big(\tilde{X}^{(\ell)}\big)\Big)
 ```
 
 Unrolling the recursion shows that the final state is the embedding plus a sum of block contributions, which gives gradients a direct path to every layer:
 
 ```math
-X^{(L)} = X^{(0)} + \sum_{\ell=1}^{L} \Big( \operatorname{MHA}^{(\ell)}(\cdot) + \operatorname{FFN}^{(\ell)}(\cdot) \Big)
+X^{(L)} = X^{(0)} + \sum_{\ell=1}^{L} \Big( \mathrm{MHA}^{(\ell)}(\cdot) + \mathrm{FFN}^{(\ell)}(\cdot) \Big)
 ```
 
 ### 2.2 RMSNorm
@@ -65,14 +65,14 @@ X^{(L)} = X^{(0)} + \sum_{\ell=1}^{L} \Big( \operatorname{MHA}^{(\ell)}(\cdot) +
 For a row vector $x \in \mathbb{R}^d$ with learned scale $g \in \mathbb{R}^d$:
 
 ```math
-\operatorname{RMSNorm}(x)_i = \frac{x_i}{\sqrt{\dfrac{1}{d} \displaystyle\sum_{j=1}^{d} x_j^2 + \varepsilon}} \; g_i
+\mathrm{RMSNorm}(x)_i = \frac{x_i}{\sqrt{\dfrac{1}{d} \displaystyle\sum_{j=1}^{d} x_j^2 + \varepsilon}} \; g_i
 ```
 
 Unlike LayerNorm, there is no mean subtraction and no bias, which removes $2d$ parameters per norm and one reduction per call.
 
 ### 2.3 Causal multi-head attention with RoPE
 
-For head $h \in \lbrace 1, \dots, H \rbrace$, with bias-free projections $W_Q^{h}, W_K^{h}, W_V^{h} \in \mathbb{R}^{d \times d_h}$ applied to $Z = \operatorname{RMSNorm}(X)$:
+For head $h \in \lbrace 1, \dots, H \rbrace$, with bias-free projections $W_Q^{h}, W_K^{h}, W_V^{h} \in \mathbb{R}^{d \times d_h}$ applied to $Z = \mathrm{RMSNorm}(X)$:
 
 ```math
 Q^h = Z\, W_Q^h, \qquad K^h = Z\, W_K^h, \qquad V^h = Z\, W_V^h
@@ -87,7 +87,7 @@ Q^h = Z\, W_Q^h, \qquad K^h = Z\, W_K^h, \qquad V^h = Z\, W_V^h
 and, for position $m$, the block-diagonal rotation
 
 ```math
-R_m = \operatorname{diag}\!\left(
+R_m = \mathrm{diag}\!\left(
 \begin{pmatrix} \cos m\omega_1 & -\sin m\omega_1 \\ \sin m\omega_1 & \cos m\omega_1 \end{pmatrix},
 \ \dots,\
 \begin{pmatrix} \cos m\omega_{d_h/2} & -\sin m\omega_{d_h/2} \\ \sin m\omega_{d_h/2} & \cos m\omega_{d_h/2} \end{pmatrix}
@@ -103,20 +103,20 @@ Queries and keys are rotated by their own positions, $\hat q_m = R_m q_m$ and $\
 The attention logit therefore depends on positions only through the **relative offset** $n-m$, with no learned positional table. In complex form, writing $q^{(j)}, k^{(j)} \in \mathbb{C}$ for the $j$-th coordinate pair,
 
 ```math
-\hat q_m^{\top} \hat k_n = \operatorname{Re}\!\left[ \sum_{j=1}^{d_h/2} q^{(j)} \, \overline{k^{(j)}} \; e^{\, i (m-n)\omega_j} \right]
+\hat q_m^{\top} \hat k_n = \mathrm{Re}\!\left[ \sum_{j=1}^{d_h/2} q^{(j)} \, \overline{k^{(j)}} \; e^{\, i (m-n)\omega_j} \right]
 ```
 
 **Causal attention.** With mask $M_{mn} = 0$ for $n \le m$ and $M_{mn} = -\infty$ otherwise,
 
 ```math
-A^h = \operatorname{softmax}\!\left( \frac{\hat Q^h \, (\hat K^h)^{\top}}{\sqrt{d_h}} + M \right), \qquad
-\operatorname{head}_h = A^h V^h
+A^h = \mathrm{softmax}\!\left( \frac{\hat Q^h \, (\hat K^h)^{\top}}{\sqrt{d_h}} + M \right), \qquad
+\mathrm{head}_h = A^h V^h
 ```
 
 The factor $\sqrt{d_h}$ keeps the logit variance near 1 for unit-variance inputs. Heads are concatenated and projected:
 
 ```math
-\operatorname{MHA}(X) = \big[ \operatorname{head}_1 \,\Vert\, \cdots \,\Vert\, \operatorname{head}_H \big]\, W_O, \qquad W_O \in \mathbb{R}^{d \times d}
+\mathrm{MHA}(X) = \big[ \mathrm{head}_1 \,\Vert\, \cdots \,\Vert\, \mathrm{head}_H \big]\, W_O, \qquad W_O \in \mathbb{R}^{d \times d}
 ```
 
 Because $A^h_{mn} = 0$ for $n > m$, the output at position $m$ is a function of $x_{\le m}$ only. This is what permits the shifted-target objective below without leakage.
@@ -126,21 +126,21 @@ Because $A^h_{mn} = 0$ for $n > m$, the output at position $m$ is a function of 
 With $W_1, W_3 \in \mathbb{R}^{d \times d_{\mathrm{ff}}}$ and $W_2 \in \mathbb{R}^{d_{\mathrm{ff}} \times d}$:
 
 ```math
-\operatorname{FFN}(z) = \Big( \operatorname{SiLU}(z W_1) \odot (z W_3) \Big) W_2,
+\mathrm{FFN}(z) = \Big( \mathrm{SiLU}(z W_1) \odot (z W_3) \Big) W_2,
 \qquad
-\operatorname{SiLU}(u) = u\,\sigma(u) = \frac{u}{1 + e^{-u}}
+\mathrm{SiLU}(u) = u\,\sigma(u) = \frac{u}{1 + e^{-u}}
 ```
 
-The gate $\operatorname{SiLU}(z W_1)$ multiplicatively modulates the linear branch $z W_3$.
+The gate $\mathrm{SiLU}(z W_1)$ multiplicatively modulates the linear branch $z W_3$.
 
 ### 2.5 Output distribution
 
 After a final RMSNorm, logits are produced by the **tied** embedding matrix:
 
 ```math
-\mathrm{logits} = \operatorname{RMSNorm}\big(X^{(L)}\big)\, E^{\top} \in \mathbb{R}^{T \times V},
+\mathrm{logits} = \mathrm{RMSNorm}\big(X^{(L)}\big)\, E^{\top} \in \mathbb{R}^{T \times V},
 \qquad
-p_\theta(\cdot \mid x_{\le t}) = \operatorname{softmax}\big(\mathrm{logits}_t\big)
+p_\theta(\cdot \mid x_{\le t}) = \mathrm{softmax}\big(\mathrm{logits}_t\big)
 ```
 
 ---
@@ -161,7 +161,7 @@ Training minimizes the empirical negative log-likelihood. For a packed chunk of 
 
 This is the cross-entropy between the empirical next-token distribution and the model. Minimizing it is equivalent to minimizing $D_{\mathrm{KL}}(p_{\mathrm{data}} \Vert p_\theta)$, up to the constant data entropy $H(p_{\mathrm{data}})$.
 
-**Gradient at the logits.** For a one-hot target $y_t$ and $p_t = \operatorname{softmax}(z_t)$,
+**Gradient at the logits.** For a one-hot target $y_t$ and $p_t = \mathrm{softmax}(z_t)$,
 
 ```math
 \frac{\partial \ell_t}{\partial z_t} = p_t - y_t
@@ -333,7 +333,7 @@ A representative symmetric per-channel scheme maps weights to 4-bit integers:
 
 ```math
 s = \frac{\max_i |w_i|}{7}, \qquad
-q_i = \operatorname{clip}\Big( \operatorname{round}\big( w_i / s \big),\ -8,\ 7 \Big), \qquad
+q_i = \mathrm{clip}\Big( \mathrm{round}\big( w_i / s \big),\ -8,\ 7 \Big), \qquad
 \hat w_i = s\, q_i
 ```
 
