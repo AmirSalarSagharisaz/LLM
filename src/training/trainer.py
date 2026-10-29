@@ -146,243 +146,57 @@ class Trainer:
         print(results)
         return results
 
-
     def train_epoch(self):
-
-
-        epoch = int(
-
-            self.training_state
-            .epoch
-            .numpy()
-
-        )
-
-
-        print(
-            f"\nStarting epoch {epoch}"
-        )
-
-
+        epoch = int(self.training_state.epoch.numpy())
+        print(f"\nStarting epoch {epoch}")
         self.metrics.reset()
-
-
-
-        gradient_buffer = (
-            self._create_gradient_buffer()
-        )
-
-
-
-        for step, batch in enumerate(
-
-            self.dataset_cursor
-
-        ):
-
-
+        gradient_buffer = self._create_gradient_buffer()
+        for step, batch in enumerate(self.dataset_cursor):
             inputs, targets = batch
-
-
-
-            gradient_buffer = self.train_step(
-
-                inputs,
-
-                targets,
-
-                gradient_buffer,
-
-                step
-
-            )
-
-
-
-            global_step = (
-                self._current_step()
-            )
-
-
-
-            if (
-
-                global_step > 0
-
-                and
-
-                global_step %
-
-                self.save_frequency
-
-                == 0
-
-            ):
-
-
-                print(
-                    "Saving checkpoint..."
-                )
-
-
+            gradient_buffer = self.train_step(inputs, targets, gradient_buffer,step)
+            global_step = self._current_step()
+            if (global_step > 0 and global_step % self.save_frequency == 0):
+                print("Saving checkpoint...")
                 self.checkpoint_manager.save()
-
-
-
             if step % self.log_frequency == 0:
-
-
-                results = (
-                    self.metrics.results()
-                )
-
+                results = self.metrics.results()
 
                 print(
-
                     f"Epoch {epoch} "
-
                     f"Step {step} "
-
                     f"Loss={results['loss']:.4f} "
-
                     f"Accuracy={results['accuracy']:.4f} "
-
                     f"Perplexity={results['perplexity']:.4f} "
-
                     f"Tokens/s="
                     f"{self._tokens_per_second():.2f}"
-
                 )
 
-
-
-        self._flush_gradients(
-
-            gradient_buffer
-
-        )
-
-
-
-        validation_results = (
-            self.validate()
-        )
-
-
-
+        self._flush_gradients(gradient_buffer)
+        validation_results = (self.validate())
         self.training_state.next_epoch()
-
-
-
         self.dataset_cursor.reset_epoch()
-
-
-
-        results = (
-            self.metrics.results()
-        )
-
+        results = self.metrics.results()
 
         if validation_results:
+            results.update(validation_results)
 
-            results.update(
-                validation_results
-            )
-
-
-        print(
-            "\nEpoch completed"
-        )
-
-
-        print(
-            results
-        )
-
-
+        print("\nEpoch completed")
+        print(results)
         return results
 
-
-
-    # =====================================================
-    # Full training
-    # =====================================================
-
-
-    def train(
-    self,
-    epochs
-    ):
-
+    def train(self, epochs):
         self.start_time = time.time()
-
-
         for epoch in range(epochs):
-
-            print(
-                f"Starting epoch {epoch}"
-            )
-
-
+            print(f"Starting epoch {epoch}")
             self.metrics.reset()
-
-
-            gradient_buffer = (
-                self._create_gradient_buffer()
-            )
-
-
-            for step, (inputs, targets) in enumerate(
-                self.dataset_cursor
-            ):
-
-
-                gradient_buffer = self.train_step(
-
-                    inputs,
-
-                    targets,
-
-                    gradient_buffer,
-
-                    step
-
-                )
-
-
+            gradient_buffer = self._create_gradient_buffer()
+            for step, (inputs, targets) in enumerate(self.dataset_cursor):
+                gradient_buffer = self.train_step(inputs, targets, gradient_buffer, step)
                 if step % self.log_frequency == 0:
-
-                    results = (
-                        self.metrics.results()
-                    )
-
-                    print(
-                        results
-                    )
-
-
-                if (
-
-                    self._current_step()
-
-                    %
-
-                    self.save_frequency
-
-                    ==0
-
-                    and self._current_step()!=0
-
-                ):
-
+                    results = self.metrics.results()
+                    print(results)
+                if self._current_step() % self.save_frequency == 0 and self._current_step()!=0:
                     self.checkpoint_manager.save()
-
-
-
             self.dataset_cursor.reset_epoch()
-
-
             self.training_state.next_epoch()
-
-
             self.checkpoint_manager.save()
