@@ -1,36 +1,10 @@
 import time
 import math
-
 import tensorflow as tf
-
 from src.training.losses import compute_loss
 from src.training.metrics import LanguageModelMetrics
-
-
-
 class Trainer:
-    """
-    Production-grade Transformer pretraining engine.
-
-    Features:
-
-    - mixed precision training
-    - gradient scaling
-    - gradient accumulation
-    - gradient clipping
-    - resumable training
-    - DatasetCursor integration
-    - TrainingState integration
-    - CheckpointManager integration
-    - TensorBoard logging
-    - validation loop
-    - throughput monitoring
-    - gradient monitoring
-    - NaN/Inf protection
-    """
-
-    def __init__(
-        self,
+    def __init__(self,
         model,
         optimizer,
         training_state,
@@ -45,392 +19,84 @@ class Trainer:
     ):
 
         self.model = model
-
         self.optimizer = optimizer
-
         self.training_state = training_state
-
         self.checkpoint_manager = checkpoint_manager
-
         self.dataset_cursor = dataset_cursor
-
         self.validation_cursor = validation_cursor
-
-
-        self.gradient_accumulation_steps = (
-            gradient_accumulation_steps
-        )
-
-
+        self.gradient_accumulation_steps = (gradient_accumulation_steps)
         self.clip_norm = clip_norm
-
         self.save_frequency = save_frequency
-
         self.log_frequency = log_frequency
-
-
         self.metrics = LanguageModelMetrics()
-
-
-        self.validation_metrics = (
-            LanguageModelMetrics()
-        )
-
-
-        self.writer = tf.summary.create_file_writer(
-            tensorboard_dir
-        )
-
-
-        self.use_loss_scaling = isinstance(
-            optimizer,
-            tf.keras.mixed_precision.LossScaleOptimizer
-        )
-
-
+        self.validation_metrics = (LanguageModelMetrics())
+        self.writer = tf.summary.create_file_writer(tensorboard_dir)
+        self.use_loss_scaling = isinstance(optimizer, tf.keras.mixed_precision.LossScaleOptimizer)
         self.start_time = None
-
-        self.total_parameters = (
-            self.model.count_params()
-        )
-
-
-        print(
-            f"Model parameters: "
-            f"{self.total_parameters:,}"
-        )
-
-
-
-    # =====================================================
-    # Utility functions
-    # =====================================================
-
+        self.total_parameters = (self.model.count_params())
+        print(f"Model parameters: "f"{self.total_parameters:,}")
 
     def _current_step(self):
-
-        return int(
-            self.training_state
-            .global_step
-            .numpy()
-        )
-
-
+        return int(self.training_state.global_step.numpy())
 
     def _learning_rate(self):
-
         lr = self.optimizer.learning_rate
-
-
         if callable(lr):
-
-            return float(
-                lr(
-                    self.optimizer.iterations
-                )
-                .numpy()
-            )
-
-
-        return float(
-            tf.keras.backend.get_value(lr)
-        )
-
-
+            return float(lr(self.optimizer.iterations).numpy())
+        return float(tf.keras.backend.get_value(lr))
 
     def _tokens_per_second(self):
-
-        elapsed = (
-            time.time()
-            -
-            self.start_time
-        )
-
-
-        tokens = (
-
-            self.training_state
-            .tokens_seen
-            .numpy()
-
-        )
-
-
-        return (
-
-            tokens /
-            max(elapsed, 1)
-
-        )
-
-
+        elapsed = (time.time()-self.start_time)
+        tokens = (self.training_state.tokens_seen.numpy())
+        return tokens/max(elapsed, 1)
 
     def _remaining_time(self):
-
         return "unknown"
 
-
-
     def _check_loss(self, loss):
+        if tf.reduce_any(tf.math.is_nan(loss)):
+            raise RuntimeError("NaN loss detected")
 
-        if tf.reduce_any(
-            tf.math.is_nan(loss)
-        ):
-
-            raise RuntimeError(
-                "NaN loss detected"
-            )
-
-
-        if tf.reduce_any(
-            tf.math.is_inf(loss)
-        ):
-
-            raise RuntimeError(
-                "Infinite loss detected"
-            )
-
-
-
-    # =====================================================
-    # Gradient computation
-    # =====================================================
-
-
-    def _compute_gradients(
-        self,
-        inputs,
-        targets
-    ):
-
-
+        if tf.reduce_any(tf.math.is_inf(loss)):
+            raise RuntimeError("Infinite loss detected")
+        
+    def _compute_gradients(self, inputs, targets):
         with tf.GradientTape() as tape:
-
-
-            logits = self.model(
-                inputs,
-                training=True
-            )
-
-
-            loss = compute_loss(
-                targets,
-                logits
-            )
-
-
+            logits = self.model(inputs, training=True)
+            loss = compute_loss(targets, logits)
             self._check_loss(loss)
-
-
-
             if self.use_loss_scaling:
-
-
-                scaled_loss = (
-                    self.optimizer
-                    .get_scaled_loss(
-                        loss
-                    )
-                )
-
-
+                scaled_loss = (self.optimizer.get_scaled_loss(loss))
             else:
-
                 scaled_loss = loss
-
-
-
-        gradients = tape.gradient(
-
-            scaled_loss,
-
-            self.model.trainable_variables
-
-        )
-
-
+        gradients = tape.gradient(scaled_loss,self.model.trainable_variables)
 
         if self.use_loss_scaling:
-
-
-            gradients = (
-                self.optimizer
-                .get_unscaled_gradients(
-                    gradients
-                )
-            )
-
-
-
-        return (
-
-            loss,
-
-            logits,
-
-            gradients
-
-        )
-
-
-
-    # =====================================================
-    # Gradient buffer
-    # =====================================================
-
-
-    #def _create_gradient_buffer(self):
-
-    #    return [
-
-    #        tf.zeros_like(variable)
-
-    #        for variable in
-    #        self.model.trainable_variables
-
-    #    ]
+            gradients = (self.optimizer.get_unscaled_gradients(gradients))
+        return loss, logits, gradients
 
     def _create_gradient_buffer(self):
-
         with tf.device("/CPU:0"):
-
-            return [
-
-                tf.zeros_like(
-                    variable,
-                    dtype=tf.float32
-                )
-
-                for variable in self.model.trainable_variables
-
-            ]
-
-
+            return [tf.zeros_like(variable, dtype=tf.float32) for variable in self.model.trainable_variables]
 
     def _reset_gradient_buffer(self):
+        return self._create_gradient_buffer()
 
-        return (
-            self._create_gradient_buffer()
-        )
-
-
-
-    # =====================================================
-    # Optimizer update
-    # =====================================================
-
-
-    def _apply_gradients(
-        self,
-        gradients
-    ):
-
-
-        gradient_norm = (
-            tf.linalg.global_norm(
-                gradients
-            )
-        )
-
-
+    def _apply_gradients(self, gradients):
+        gradient_norm = (tf.linalg.global_norm(gradients))
         if self.clip_norm:
-
-
-            gradients, _ = (
-                tf.clip_by_global_norm(
-                    gradients,
-                    self.clip_norm
-                )
-            )
-
-
-
-        self.optimizer.apply_gradients(
-
-            zip(
-
-                gradients,
-
-                self.model.trainable_variables
-
-            )
-
-        )
-
-
+            gradients, _ = tf.clip_by_global_norm(gradients,self.clip_norm)
+        self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
         return gradient_norm
-        # =====================================================
-    # TensorBoard logging
-    # =====================================================
 
-
-    def _write_training_summary(
-        self,
-        loss,
-        gradient_norm
-    ):
-
-
+    def _write_training_summary(self, loss, gradient_norm):
         step = self._current_step()
-
-
         with self.writer.as_default():
-
-            tf.summary.scalar(
-
-                "train/loss",
-
-                loss,
-
-                step=step
-
-            )
-
-
-            tf.summary.scalar(
-
-                "train/perplexity",
-
-                tf.exp(loss),
-
-                step=step
-
-            )
-
-
-            tf.summary.scalar(
-
-                "train/learning_rate",
-
-                self._learning_rate(),
-
-                step=step
-
-            )
-
-
-            tf.summary.scalar(
-
-                "train/gradient_norm",
-
-                gradient_norm,
-
-                step=step
-
-            )
-
-
-            tf.summary.scalar(
-
-                "train/tokens_per_second",
-
-                self._tokens_per_second(),
-
-                step=step
-
-            )
-
-
+            tf.summary.scalar("train/loss", loss, step=step)
+            tf.summary.scalar("train/perplexity", tf.exp(loss), step=step)
+            tf.summary.scalar("train/learning_rate", self._learning_rate(), step=step)
+            tf.summary.scalar("train/gradient_norm", gradient_norm, step=step)
+            tf.summary.scalar("train/tokens_per_second", self._tokens_per_second(), step=step)
         self.writer.flush()
 
 
