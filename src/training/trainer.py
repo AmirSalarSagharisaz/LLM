@@ -4,19 +4,12 @@ import tensorflow as tf
 from src.training.losses import compute_loss
 from src.training.metrics import LanguageModelMetrics
 class Trainer:
-    def __init__(self,
-        model,
-        optimizer,
-        training_state,
-        checkpoint_manager,
-        dataset_cursor,
-        validation_cursor=None,
+    def __init__(self, model, optimizer, training_state, checkpoint_manager, dataset_cursor, validation_cursor=None, 
         gradient_accumulation_steps=1,
         clip_norm=1.0,
         save_frequency=1000,
         log_frequency=100,
-        tensorboard_dir="logs"
-    ):
+        tensorboard_dir="logs"):
 
         self.model = model
         self.optimizer = optimizer
