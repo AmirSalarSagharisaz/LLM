@@ -99,305 +99,52 @@ class Trainer:
             tf.summary.scalar("train/tokens_per_second", self._tokens_per_second(), step=step)
         self.writer.flush()
 
-
-
-    # =====================================================
-    # Single training step
-    # =====================================================
-
-
-    def train_step(
-        self,
-        inputs,
-        targets,
-        gradient_buffer,
-        accumulation_index
-    ):
-
-
-        loss, logits, gradients = (
-            self._compute_gradients(
-                inputs,
-                targets
-            )
-        )
-
-
-        accumulation_scale = tf.cast(
-
-            self.gradient_accumulation_steps,
-
-            loss.dtype
-
-        )
-
-
-        gradients = [
-
-            gradient /
-            accumulation_scale
-
-            for gradient in gradients
-
-        ]
-
-
-
-        #gradient_buffer = [
-
-        #    accumulated + gradient
-
-        #    for accumulated, gradient in zip(
-
-        #        gradient_buffer,
-
-        #        gradients
-
-        #    )
-
-        #]
-
+    def train_step(self,inputs,targets,gradient_buffer,accumulation_index):
+        loss, logits, gradients = self._compute_gradients(inputs,targets)
+        accumulation_scale = tf.cast(self.gradient_accumulation_steps,loss.dtype)
+        gradients = [gradient/accumulation_scale for gradient in gradients]
         new_gradient_buffer = []
-
-
-        for accumulated, gradient in zip(
-            gradient_buffer,
-            gradients
-        ):
-
+        for accumulated, gradient in zip(gradient_buffer,gradients):
             with tf.device("/CPU:0"):
-
-                accumulated = accumulated + tf.cast(
-                    gradient,
-                    tf.float32
-                )
-
-
-            new_gradient_buffer.append(
-                accumulated
-            )
-
-
+                accumulated = accumulated + tf.cast(gradient,tf.float32)
+            new_gradient_buffer.append(accumulated)
         gradient_buffer = new_gradient_buffer
-
-
-
-        optimizer_update = (
-
-            (accumulation_index + 1)
-
-            %
-
-            self.gradient_accumulation_steps
-
-            == 0
-
-        )
-
-
-
+        optimizer_update = (accumulation_index + 1) % self.gradient_accumulation_steps == 0
         gradient_norm = None
-
-
-        self.training_state.tokens_seen.assign_add(
-
-            tf.cast(
-                tf.size(targets),
-                tf.int64
-            )
-
-        )
-
-
+        self.training_state.tokens_seen.assign_add(tf.cast(tf.size(targets),tf.int64))
         if optimizer_update:
+            gradient_norm = self._apply_gradients(gradient_buffer)
+            gradient_buffer = self._reset_gradient_buffer()
+            self.training_state.increment_step(tokens=tf.size(targets))
+            self._write_training_summary(loss, gradient_norm)
 
-
-            gradient_norm = (
-                self._apply_gradients(
-                    gradient_buffer
-                )
-            )
-
-
-            gradient_buffer = (
-                self._reset_gradient_buffer()
-            )
-
-
-            self.training_state.increment_step(
-                tokens=tf.size(targets)
-            )
-
-
-
-            self._write_training_summary(
-
-                loss,
-
-                gradient_norm
-
-            )
-
-
-
-        self.metrics.update(
-
-            loss,
-
-            targets,
-
-            logits
-
-        )
-
-
+        self.metrics.update(loss, targets, logits)
         return gradient_buffer
 
-
-
-    # =====================================================
-    # Flush incomplete accumulation
-    # =====================================================
-
-
-    def _flush_gradients(
-        self,
-        gradient_buffer
-    ):
-
-
-        gradient_norm = (
-            tf.linalg.global_norm(
-                gradient_buffer
-            )
-        )
-
-
+    def _flush_gradients(self, gradient_buffer):
+        gradient_norm = (tf.linalg.global_norm(gradient_buffer))
         if gradient_norm > 0:
-
-
-            self._apply_gradients(
-
-                gradient_buffer
-
-            )
-
-
+            self._apply_gradients(gradient_buffer)
             self.training_state.increment_step()
 
-
-
-    # =====================================================
-    # Validation
-    # =====================================================
-
-
     def validate(self):
-
-
         if self.validation_cursor is None:
-
             return None
-
-
-
-        print(
-            "\nRunning validation..."
-        )
-
-
+        print("\nRunning validation...")
         self.validation_metrics.reset()
-
-
-
         for inputs, targets in self.validation_cursor:
-
-
-            logits = self.model(
-
-                inputs,
-
-                training=False
-
-            )
-
-
-            loss = compute_loss(
-
-                targets,
-
-                logits
-
-            )
-
-
-            self.validation_metrics.update(
-
-                loss,
-
-                targets,
-
-                logits
-
-            )
-
-
-
-        results = (
-            self.validation_metrics.results()
-        )
-
-
+            logits = self.model(inputs, training=False)
+            loss = compute_loss(targets, logits)
+            self.validation_metrics.update(loss, targets, logits)
+        results = (self.validation_metrics.results())
         step = self._current_step()
-
-
-
         with self.writer.as_default():
-
-
-            tf.summary.scalar(
-
-                "validation/loss",
-
-                results["loss"],
-
-                step=step
-
-            )
-
-
-            tf.summary.scalar(
-
-                "validation/perplexity",
-
-                results["perplexity"],
-
-                step=step
-
-            )
-
-
+            tf.summary.scalar("validation/loss", results["loss"], step=step)
+            tf.summary.scalar("validation/perplexity", results["perplexity"], step=step)
         self.writer.flush()
-
-
-
-        print(
-            "Validation:"
-        )
-
-
-        print(
-            results
-        )
-
-
+        print("Validation:")
+        print(results)
         return results
-
-
-
-    # =====================================================
-    # Epoch training
-    # =====================================================
 
 
     def train_epoch(self):
